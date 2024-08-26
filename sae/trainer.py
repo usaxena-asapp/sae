@@ -199,7 +199,7 @@ class SaeTrainer:
             name = module_to_name[module]
             hidden_dict[name] = outputs.flatten(0, 1)
 
-        for batch in dl:
+        for i, batch in enumerate(dl):
             hidden_dict.clear()
 
             # Bookkeeping for dead feature detection
@@ -220,6 +220,7 @@ class SaeTrainer:
                 hidden_dict = self.scatter_hiddens(hidden_dict)
 
             for name, hiddens in hidden_dict.items():
+                # print(hiddens.shape)
                 raw = self.saes[name]  # 'raw' never has a DDP wrapper
 
                 # On the first iteration, initialize the decoder bias
@@ -254,6 +255,10 @@ class SaeTrainer:
                 wrapped = maybe_wrapped[name]
 
                 # Save memory by chunking the activations
+                calc_topo = False
+                if self.global_step % 1000 == 0:
+                    calc_topo = True
+                    print("Going to calculate topo")
                 for chunk in hiddens.chunk(self.cfg.micro_acc_steps):
                     out = wrapped(
                         chunk,
@@ -263,6 +268,7 @@ class SaeTrainer:
                             if self.cfg.auxk_alpha > 0
                             else None
                         ),
+                        calc_topo=calc_topo
                     )
 
                     avg_fvu[name] += float(
@@ -277,7 +283,7 @@ class SaeTrainer:
                             self.maybe_all_reduce(out.multi_topk_fvu.detach()) / denom
                         )
 
-                    loss = out.fvu + self.cfg.auxk_alpha * out.auxk_loss + out.multi_topk_fvu / 8
+                    loss = out.fvu + out.topo_loss + self.cfg.auxk_alpha * out.auxk_loss + out.multi_topk_fvu / 8
                     loss.div(acc_steps).backward()
 
                     # Update the did_fire mask

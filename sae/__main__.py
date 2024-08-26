@@ -16,7 +16,7 @@ from .trainer import SaeTrainer, TrainConfig
 @dataclass
 class RunConfig(TrainConfig):
     model: str = field(
-        default="EleutherAI/pythia-160m",
+        default="EleutherAI/pythia-14m",
         positional=True,
     )
     """Name of the model to train."""

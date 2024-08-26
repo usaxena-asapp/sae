@@ -1,0 +1,9 @@
+accelerate
+datasets
+einops
+huggingface-hub
+natsort
+safetensors
+simple-parsing
+torch
+transformers

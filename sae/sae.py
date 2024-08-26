@@ -9,6 +9,8 @@ from huggingface_hub import snapshot_download
 from natsort import natsorted
 from safetensors.torch import load_model, save_model
 from torch import Tensor, nn
+from torch_topological.nn import SignatureLoss
+from torch_topological.nn import VietorisRipsComplex
 
 from .config import SaeConfig
 from .utils import decoder_impl
@@ -33,6 +35,9 @@ class ForwardOutput(NamedTuple):
 
     fvu: Tensor
     """Fraction of variance unexplained."""
+
+    topo_loss: Tensor
+    """Topo loss."""
 
     auxk_loss: Tensor
     """AuxK loss, if applicable."""
@@ -64,6 +69,8 @@ class Sae(nn.Module):
             self.set_decoder_norm_to_unit_norm()
 
         self.b_dec = nn.Parameter(torch.zeros(d_in, dtype=dtype, device=device))
+        self.sig_loss = SignatureLoss(p=2)
+        self.vr = VietorisRipsComplex(dim=0)
 
     @staticmethod
     def load_many(
@@ -188,12 +195,22 @@ class Sae(nn.Module):
         y = decoder_impl(top_indices, top_acts.to(self.dtype), self.W_dec.mT)
         return y + self.b_dec
 
-    def forward(self, x: Tensor, dead_mask: Tensor | None = None) -> ForwardOutput:
+    def forward(self, x: Tensor, dead_mask: Tensor | None = None, calc_topo = False) -> ForwardOutput:
+        #print(f"Input size: {x.size()}")
         pre_acts = self.pre_acts(x)
-
+        #print(f"Pre TopK: {pre_acts.size()}")
         # Decode and compute residual
         top_acts, top_indices = self.select_topk(pre_acts)
+        #print(f"top_acts: {top_acts.shape}")
+        #print(f"top_indices: {top_indices.shape}")
         sae_out = self.decode(top_acts, top_indices)
+        topo_loss = torch.tensor(0.0)
+        if calc_topo:
+            print("Calculating topo loss...")
+            pi_x = self.vr(x.to(torch.float16))
+            pi_z = self.vr(sae_out.to(torch.float16))
+            topo_loss = self.sig_loss([x, pi_x], [sae_out, pi_z])
+            print(f"Topoloss: {topo_loss}")
         e = sae_out - x
 
         # Used as a denominator for putting everything on a reasonable scale
@@ -238,6 +255,7 @@ class Sae(nn.Module):
             top_acts,
             top_indices,
             fvu,
+            topo_loss,
             auxk_loss,
             multi_topk_fvu,
         )
