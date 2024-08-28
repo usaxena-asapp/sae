@@ -304,19 +304,20 @@ class SaeTrainer:
                     self.optimizer.zero_grad()
 
                     # Backward for the second loss term (out.topo_loss)
-                    loss_topo = out.topo_loss.div(acc_steps)
-                    loss_topo.backward(retain_graph=True)
+                    if calc_topo:
+                        loss_topo = out.topo_loss.div(acc_steps)
+                        loss_topo.backward(retain_graph=True)
 
-                    # Compute gradient norm for out.topo_loss
-                    grad_norm_topo = sum(p.grad.norm() for p in raw.parameters())
-                    print("Gradient Norm for topo_loss:", grad_norm_topo)
+                        # Compute gradient norm for out.topo_loss
+                        grad_norm_topo = sum(p.grad.norm() for p in raw.parameters())
+                        print("Gradient Norm for topo_loss:", grad_norm_topo)
 
-                    # Zero gradients before next backward pass
-                    self.optimizer.zero_grad()
+                        # Zero gradients before next backward pass
+                        self.optimizer.zero_grad()
 
                     ####
 
-                    loss = out.fvu + out.topo_loss + self.cfg.auxk_alpha * out.auxk_loss + out.multi_topk_fvu / 8
+                    loss = out.fvu + 0.1 * out.topo_loss + self.cfg.auxk_alpha * out.auxk_loss + out.multi_topk_fvu / 8
                     loss.div(acc_steps).backward()
 
                     # Update the did_fire mask
