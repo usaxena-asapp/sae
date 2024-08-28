@@ -182,6 +182,7 @@ class SaeTrainer:
         # For logging purposes
         avg_auxk_loss = defaultdict(float)
         avg_fvu = defaultdict(float)
+        avg_topo_loss = defaultdict(float)
         avg_multi_topk_fvu = defaultdict(float)
 
         hidden_dict: dict[str, Tensor] = {}
@@ -256,9 +257,9 @@ class SaeTrainer:
 
                 # Save memory by chunking the activations
                 calc_topo = False
-                if self.global_step % 1000 == 0:
+                if self.global_step % 10 == 0:
                     calc_topo = True
-                    print("Going to calculate topo")
+                    print("Going to calculate topological loss for this step")
                 for chunk in hiddens.chunk(self.cfg.micro_acc_steps):
                     out = wrapped(
                         chunk,
@@ -271,6 +272,11 @@ class SaeTrainer:
                         calc_topo=calc_topo
                     )
 
+                    if calc_topo:
+                        avg_topo_loss[name] += float(
+                            self.maybe_all_reduce(out.topo_loss.detach()) / denom
+                        )
+
                     avg_fvu[name] += float(
                         self.maybe_all_reduce(out.fvu.detach()) / denom
                     )
@@ -282,6 +288,33 @@ class SaeTrainer:
                         avg_multi_topk_fvu[name] += float(
                             self.maybe_all_reduce(out.multi_topk_fvu.detach()) / denom
                         )
+
+                    ####
+                    # Calculate individual losses
+
+                    # Backward for the first loss term (out.fvu)
+                    loss_fvu = out.fvu.div(acc_steps)
+                    loss_fvu.backward(retain_graph=True)
+
+                    # Compute gradient norm for out.fvu
+                    grad_norm_fvu = sum(p.grad.norm() for p in raw.parameters())
+                    print("Gradient Norm for fvu:", grad_norm_fvu)
+
+                    # Zero gradients before next backward pass
+                    self.optimizer.zero_grad()
+
+                    # Backward for the second loss term (out.topo_loss)
+                    loss_topo = out.topo_loss.div(acc_steps)
+                    loss_topo.backward(retain_graph=True)
+
+                    # Compute gradient norm for out.topo_loss
+                    grad_norm_topo = sum(p.grad.norm() for p in raw.parameters())
+                    print("Gradient Norm for topo_loss:", grad_norm_topo)
+
+                    # Zero gradients before next backward pass
+                    self.optimizer.zero_grad()
+
+                    ####
 
                     loss = out.fvu + out.topo_loss + self.cfg.auxk_alpha * out.auxk_loss + out.multi_topk_fvu / 8
                     loss.div(acc_steps).backward()
@@ -330,6 +363,7 @@ class SaeTrainer:
 
                         info.update(
                             {
+                                f"topo/{name}": avg_topo_loss[name],
                                 f"fvu/{name}": avg_fvu[name],
                                 f"dead_pct/{name}": mask.mean(
                                     dtype=torch.float32
