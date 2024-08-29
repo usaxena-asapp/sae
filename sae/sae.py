@@ -70,7 +70,7 @@ class Sae(nn.Module):
 
         self.b_dec = nn.Parameter(torch.zeros(d_in, dtype=dtype, device=device))
         self.sig_loss = SignatureLoss(p=2)
-        self.vr = VietorisRipsComplex(dim=0)
+        self.vr = VietorisRipsComplex(dim=0,n_threads=12)
 
     @staticmethod
     def load_many(

@@ -13,7 +13,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 from transformers import PreTrainedModel, get_linear_schedule_with_warmup
-
+import numpy as np
 from .config import TrainConfig
 from .data import MemmapDataset
 from .sae import Sae
@@ -303,14 +303,19 @@ class SaeTrainer:
                     # Compute gradient norm for out.fvu
                     grad_norm_fvu = sum(p.grad.norm() for p in raw.parameters())
                     # print("Gradient Norm for fvu:", grad_norm_fvu.item())
-                    avg_norm_topo_loss[name] += float(grad_norm_fvu.item())
+                    avg_norm_fvu[name] += float(grad_norm_fvu.item())
 
                     # Zero gradients before next backward pass
                     self.optimizer.zero_grad()
+                    ###
+                    # topo loss decay
+                    weight_decay = 1 / (1 + np.sqrt(0.1 * self.global_step))
+                    print(f"{weight_decay=}, {acc_steps=}")
+                    ###
 
                     # Backward for the second loss term (out.topo_loss)
                     if calc_topo:
-                        loss_topo = 0.1 * out.topo_loss.div(acc_steps)
+                        loss_topo = weight_decay * out.topo_loss.div(acc_steps)
                         loss_topo.backward(retain_graph=True)
 
                         # Compute gradient norm for out.topo_loss
@@ -323,7 +328,7 @@ class SaeTrainer:
 
                     ####
 
-                    loss = out.fvu + 0.1 * out.topo_loss + self.cfg.auxk_alpha * out.auxk_loss + out.multi_topk_fvu / 8
+                    loss = out.fvu + weight_decay * out.topo_loss + self.cfg.auxk_alpha * out.auxk_loss + out.multi_topk_fvu / 8
                     loss.div(acc_steps).backward()
 
                     # Update the did_fire mask
