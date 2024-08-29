@@ -7,3 +7,7 @@ safetensors
 simple-parsing
 torch
 transformers
+torch-topological
+POT
+wandb
+jupyter
