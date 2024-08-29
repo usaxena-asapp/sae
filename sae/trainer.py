@@ -185,6 +185,10 @@ class SaeTrainer:
         avg_topo_loss = defaultdict(float)
         avg_multi_topk_fvu = defaultdict(float)
 
+        ### norm dicts for tracking
+        avg_norm_topo_loss = defaultdict(float)
+        avg_norm_fvu = defaultdict(float)
+
         hidden_dict: dict[str, Tensor] = {}
         name_to_module = {
             name: self.model.get_submodule(name) for name in self.cfg.hookpoints
@@ -298,19 +302,21 @@ class SaeTrainer:
 
                     # Compute gradient norm for out.fvu
                     grad_norm_fvu = sum(p.grad.norm() for p in raw.parameters())
-                    print("Gradient Norm for fvu:", grad_norm_fvu)
+                    # print("Gradient Norm for fvu:", grad_norm_fvu.item())
+                    avg_norm_topo_loss[name] += float(grad_norm_fvu.item())
 
                     # Zero gradients before next backward pass
                     self.optimizer.zero_grad()
 
                     # Backward for the second loss term (out.topo_loss)
                     if calc_topo:
-                        loss_topo = out.topo_loss.div(acc_steps)
+                        loss_topo = 0.1 * out.topo_loss.div(acc_steps)
                         loss_topo.backward(retain_graph=True)
 
                         # Compute gradient norm for out.topo_loss
                         grad_norm_topo = sum(p.grad.norm() for p in raw.parameters())
-                        print("Gradient Norm for topo_loss:", grad_norm_topo)
+                        # print("Gradient Norm for topo_loss:", grad_norm_topo)
+                        avg_norm_topo_loss[name] += float(grad_norm_topo.item())
 
                         # Zero gradients before next backward pass
                         self.optimizer.zero_grad()
@@ -364,7 +370,11 @@ class SaeTrainer:
 
                         info.update(
                             {
+                                ### Log topo stuff
                                 f"topo/{name}": avg_topo_loss[name],
+                                f"avg_norm_fvu/{name}": avg_norm_fvu[name],
+                                f"avg_norm_topo_loss/{name}": avg_norm_topo_loss[name],
+                                ###
                                 f"fvu/{name}": avg_fvu[name],
                                 f"dead_pct/{name}": mask.mean(
                                     dtype=torch.float32
@@ -376,9 +386,17 @@ class SaeTrainer:
                         if self.cfg.sae.multi_topk:
                             info[f"multi_topk_fvu/{name}"] = avg_multi_topk_fvu[name]
 
+                    ### Clear topo loss
+                    avg_topo_loss.clear()
+                    ###
                     avg_auxk_loss.clear()
                     avg_fvu.clear()
                     avg_multi_topk_fvu.clear()
+
+                    ### Clear norm dict
+                    avg_norm_fvu.clear()
+                    avg_norm_topo_loss.clear()
+                    ###
 
                     if self.cfg.distribute_modules:
                         outputs = [{} for _ in range(dist.get_world_size())]
