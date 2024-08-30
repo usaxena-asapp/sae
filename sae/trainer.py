@@ -261,7 +261,7 @@ class SaeTrainer:
 
                 # Save memory by chunking the activations
                 calc_topo = False
-                if self.global_step % 10 == 0:
+                if self.global_step % 5 == 0:
                     calc_topo = True
                     print("Going to calculate topological loss for this step")
                 for chunk in hiddens.chunk(self.cfg.micro_acc_steps):
@@ -276,8 +276,12 @@ class SaeTrainer:
                         calc_topo=calc_topo
                     )
 
+                    # topo loss decay
+                    weight_decay = 0.2 * np.exp(-0.0005 * self.global_step)
+                    print(f"{weight_decay=}")
+
                     if calc_topo:
-                        avg_topo_loss[name] += float(
+                        avg_topo_loss[name] += weight_decay * float(
                             self.maybe_all_reduce(out.topo_loss.detach()) / denom
                         )
 
@@ -307,10 +311,6 @@ class SaeTrainer:
 
                     # Zero gradients before next backward pass
                     self.optimizer.zero_grad()
-                    ###
-                    # topo loss decay
-                    weight_decay = 1 / (1 + np.sqrt(0.1 * self.global_step))
-                    print(f"{weight_decay=}, {acc_steps=}")
                     ###
 
                     # Backward for the second loss term (out.topo_loss)
