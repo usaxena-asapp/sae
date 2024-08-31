@@ -277,7 +277,7 @@ class SaeTrainer:
                     )
 
                     # topo loss decay
-                    weight_decay = 0.2 * np.exp(-0.0005 * self.global_step)
+                    weight_decay = 1 # 0.2 * np.exp(-0.0005 * self.global_step)
                     print(f"{weight_decay=}")
 
                     if calc_topo:
@@ -328,7 +328,8 @@ class SaeTrainer:
 
                     ####
 
-                    loss = out.fvu + weight_decay * out.topo_loss + self.cfg.auxk_alpha * out.auxk_loss + out.multi_topk_fvu / 8
+                    # loss = out.fvu + weight_decay * out.topo_loss + self.cfg.auxk_alpha * out.auxk_loss + out.multi_topk_fvu / 8
+                    loss = out.fvu + self.cfg.auxk_alpha * out.auxk_loss + out.multi_topk_fvu / 8
                     loss.div(acc_steps).backward()
 
                     # Update the did_fire mask
